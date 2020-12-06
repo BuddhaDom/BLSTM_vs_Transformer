@@ -142,12 +142,12 @@ def decodeWordIndex(text, wordIndex):
     return ' '.join([reverse_word_index.get(i, "?") for i in text])
 
 # Plotting of confussion matrixes or heatmaps.
-def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix', annot=True, fmt='.2f', ylabel='True', xlabel='Predicted'):
+def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix', annot=True, fmt='.2f', ylabel='True', xlabel='Predicted', vmin=None, vmax=None):
     sb.set(color_codes=True)
     plt.figure(1, figsize=(6, 5))
     plt.title = (f'{name} - {title}')
     
-    ax = sb.heatmap(data, annot=annot, cmap='BuPu', linecolor='black', fmt=fmt, square=True)
+    ax = sb.heatmap(data, annot=annot, cmap='BuPu', linecolor='black', fmt=fmt, square=True, vmin=vmin, vmax=vmax)
     
     ax.set_xticklabels(labels)
     ax.set_yticklabels(labels)
@@ -324,7 +324,7 @@ print(report)
 
 # Confussion Matrix
 ednlp_cm=confusion_matrix(ednlp['te']['y'], testPrediction, normalize='pred')
-plot_confussion_matrix(ednlp_cm, e_index, name='EDNLP', fmt='.2f')
+plot_confussion_matrix(ednlp_cm, e_index, name='EDNLP', fmt='.2f', vmin=0, vmax=1)
 
 # %% ANNOTATING MHD, BECOMES EMHD
 eHeaders=['post', 'reply', 'post_emotion', 'reply_emotion']
@@ -362,7 +362,7 @@ plot_countbars(emhd, 'reply')
 
 #Heatmap
 emhd_cm = confusion_matrix(emhd['post_emotion'], emhd['reply_emotion'], normalize=None)
-plot_confussion_matrix(emhd_cm, e_index, name='EMHD', title='Heatmap', ylabel='Posts', xlabel='Replies', fmt='d')
+plot_confussion_matrix(emhd_cm, e_index, name='EMHD', title='Heatmap', ylabel='Posts', xlabel='Replies', fmt='d', vmin=0)
 
 # %% That was fun wasn't it?
 print(':)')
