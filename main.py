@@ -1,4 +1,9 @@
 # %% LIBRARIES AND RESOURCES
+
+# This script builds a BLSTM classification model for annotation of a dataset 
+# generated from a Convokit Corpus. Most specifically, 'mentalhealth' 
+# Subreddit posts and replies.
+
 from convokit import Corpus, download
 import pandas as pd
 from nltk.tokenize import word_tokenize
@@ -47,6 +52,8 @@ stopWordList = set(stopwords.words('english')).union(
 minWordLength = 3  # Minimum word length
 maxWordCount = 30  # Maximum words per post
 
+
+# Simple Report of selected Dataframe
 def dataFrameStatus(df: pd.DataFrame):
     print(f'Dataframe shape: {df.shape}')
     for name, _ in df.iteritems():
@@ -62,7 +69,7 @@ def removeInvalidPosts(df: pd.DataFrame, invalidTextList: list) -> pd.DataFrame:
     df = df.reset_index(drop=True)
     return df
 
-
+# Partial preprocessing of text.
 def rawCleaner(post: str):
     post = re.sub(r'http\S+', '', post)  # Remove URLs
     post = re.sub(r'[^a-zA-Z\s]', '', post)  # Remove Non-letters
@@ -74,7 +81,7 @@ def rawCleaner(post: str):
     sys.stdout.write(f'\r{post[:30]}...')
     return post
 
-
+# Preprocessing for NLP purposes
 def nlpTreatment(entry: str, lemmatizer_over_stemmer: bool = True):
     entry = word_tokenize(entry)  # Tokenize text
     entry = [word for word in entry if word not in stopWordList] # All Stopwords
@@ -87,7 +94,7 @@ def nlpTreatment(entry: str, lemmatizer_over_stemmer: bool = True):
     sys.stdout.write(f'\r{entry[:30]}...')
     return entry
 
-
+# Run the RawCleaner on the selected Dataframe
 def cleanDF(df: pd.DataFrame, rowInvalidationText: list) -> pd.DataFrame:
     tick = time.time()
     df = removeInvalidPosts(df, rowInvalidationText)
@@ -106,7 +113,7 @@ def cleanDF(df: pd.DataFrame, rowInvalidationText: list) -> pd.DataFrame:
     print('Finished preprocessing ({:.2f}s Total)\n'.format(tock-tick))
     return df
 
-
+# Splitting function for EDNLP specifically.
 def ednlpSplitter(df: pd.DataFrame, headers: list) -> set:
     global e_index
     sys.stdout.write('Cleaning for NLP...\n')
@@ -121,7 +128,7 @@ def ednlpSplitter(df: pd.DataFrame, headers: list) -> set:
     sys.stdout.flush()
     return X, y
 
-
+# Counts the ocurrences of each word in an list of texts.
 def counter_word(texts) -> int:
     count = Counter()
     for text in texts.values:
@@ -129,12 +136,12 @@ def counter_word(texts) -> int:
             count[word] += 1
     return count
 
-
+# Inverse translation from a Padded text sequence back to text (Which ahs been Lematized or Stemmed)
 def decodeWordIndex(text, wordIndex):
     reverse_word_index = dict([(value, key) for (key, value) in wordIndex.items()])
     return ' '.join([reverse_word_index.get(i, "?") for i in text])
 
-
+# Plotting of confussion matrixes or heatmaps.
 def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix', annot=True, fmt='.2f', ylabel='True', xlabel='Predicted'):
     sb.set(color_codes=True)
     plt.figure(1, figsize=(6, 5))
@@ -151,14 +158,31 @@ def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix
     plt.savefig(f'images/{name} {title}.png', bboc_inches='tight', dpi=300)
     plt.show()
     plt.close()
-    
 
+#Plotting of Countbar graphs.
+def plot_countbars(data, name):
+    sb.set(color_codes=True)
+    plt.figure(figsize=(4,4))
+    plt.title = (f'{name} Emotion Distribution'.capitalize())
+
+    ax = sb.countplot(data=data, x=f'{name}_emotion', palette='YlGnBu')
+    ax.set_xticklabels(e_index)
+    ax.set_title(f'{name} Emotion Distribution'.capitalize())
+    ax.set(ylabel='Count', xlabel='Emotion')
+    
+    plt.gcf().subplots_adjust(left=0.25)
+
+    plt.savefig(f'images/{name}_emotion_distrubtion.png', bboc_inches='tight', dpi=300)
+    plt.show()
+    plt.close()
+
+# Choose the highest values from a set of predicted features.
 def predictAndChoose(model, data):
     data = model.predict(data, verbose=1)
     data = data.argmax(axis=1)
     return data
 
-
+# Return the sequence and padded sequence of a set of features.
 def sequencerPadder(data, tokenizer):
     sequence = tokenizer.texts_to_sequences(data) # Features as Sequences
     paddedSequence = pad_sequences(sequence, maxlen=maxWordCount, padding='post', truncating='post') #Features as Padded Sequences
@@ -176,7 +200,7 @@ try:
     mhd = mhd.reset_index(drop=True)
     print('Mental Health Data found and Loaded\n')
 except:
-    print('Mental Health Dataset not found. Constructing Dataset. This might take a while...')
+    print('Mental Health Dataset not found at dataset/mental_health.csv. Constructing Dataset. This might take a while...')
     tick = time.time()
     target_subreddit = 'subreddit-mentalhealth'
     corpus = Corpus(download(target_subreddit))
@@ -199,6 +223,7 @@ except:
 
 dataFrameStatus(mhd)
 # %% EDNLP DATASET BUILDING
+
 # Loading EDNLP Data
 ec_colnames = ['text', 'emotion']
 try:
@@ -212,6 +237,8 @@ try:
     ec_test_X, ec_test_y = ednlpSplitter(ec_test, ec_colnames)
     ec_val_X, ec_val_y = ednlpSplitter(ec_val, ec_colnames)
 
+
+    # Dictionary that will contain all the split sets of EDNLP
     ednlp = {
         'tr': {'X': ec_train_X, 'y': ec_train_y}, # Training Sets
         'te': {'X': ec_test_X, 'y': ec_test_y}, # Testing Sets
@@ -221,8 +248,10 @@ try:
     for key in ednlp:
         print('Shape of',key,'\b features:',ednlp[key]['X'].shape)
 except:
-    print('EDNLP Datasets not found. check for test, val and train CSVs at /dataset/EDNLP')
+    print('EDNLP Dataset(s) not found. check for test, val and train CSVs at /dataset/EDNLP')
+
 # %% WORD INDEXING
+
 wordCounter = counter_word(ednlp['tr']['X'])
 numWords = len(wordCounter)
 
@@ -234,12 +263,16 @@ for key in ednlp:
     ednlp[key]['Xs'], ednlp[key]['Xp'] = sequencerPadder(ednlp[key]['X'], tokenizer)
 
 print('Sequences and Padded Sequences generated.')
+
 # %% EDNLP_BLSTM MODEL
+
+# Attempt to load already-existing model.
+# Otherwise, build and train the model.
 try:
     model = keras.models.load_model('models/EDNLP_BLSTM')
     print('EDNLP_BLSTM Model loaded.\n')
 except:
-    print('EDNLP_BLSTM Model not found on models/EDNLP_BLSTM. Building model.')
+    print('EDNLP_BLSTM Model not found at models/EDNLP_BLSTM. Building model.')
     # Model Structure
     model = Sequential(name='EDNLP_BLSTM')
 
@@ -278,29 +311,34 @@ except:
 
 print(model.summary())
 plot_model(model, to_file='images/BLSTM_model.png', show_layer_names=True, show_shapes=True)
-# %% TESTING AND RESULTS
+
+# %% TESTING BLSTM EDNLP
+
 testPrediction = predictAndChoose(model, ednlp['te']['Xp'])
 
-# Presicion, Recall, F1-Score, Confussion Matrix
-ednlp_cm=confusion_matrix(ednlp['te']['y'], testPrediction, normalize='pred')
-
+# Accuracy, Presicion, Recall, and F1-Score
 report=classification_report(ednlp['te']['y'], testPrediction, target_names=e_index, output_dict=True)
 report=pd.DataFrame(report).transpose()
 report.to_csv('reports/ednlp.csv', float_format='%.2f')
 print(report)
 
+# Confussion Matrix
+ednlp_cm=confusion_matrix(ednlp['te']['y'], testPrediction, normalize='pred')
 plot_confussion_matrix(ednlp_cm, e_index, name='EDNLP', fmt='.2f')
 
 # %% ANNOTATING MHD, BECOMES EMHD
 eHeaders=['post', 'reply', 'post_emotion', 'reply_emotion']
+
+# Attempt to lad already existing EMHD file.
+# Otherwise, anotate it from the MHD DataFrame.
 try:
     emhd = pd.read_csv('dataset/emotional_mental_health.csv')
     emhd = emhd.reset_index(drop=True)
     print('Emotionally annotated dataset (EMHD) loaded')
 #Begin annotating MHD into EMHD
 except:
-    print('EMHD Not found. Contructing.')
-    emhd=mhd
+    print('EMHD Not found at dataset/emotional_mental_health.csv. Contructing from MHD.')
+    emhd = mhd
     for name, _ in mhd.iteritems():
         sys.stdout.write(f'Annotating column "{name}" with emotion...\n')
         start = time.time()
@@ -315,7 +353,16 @@ except:
 
 dataFrameStatus(emhd)
 
-# %% EMHD POST-REPLY EMOTION HEATMAP
-emhd_cm = confusion_matrix(emhd['post_emotion'], emhd['reply_emotion'], normalize=None)
+# %% EMHD POST-REPLY REPORTS AND PLOTS
 
+#Countplots
+unique_posts_emhd = emhd.drop_duplicates(['post'])
+plot_countbars(unique_posts_emhd,'post')
+plot_countbars(emhd, 'reply')
+
+#Heatmap
+emhd_cm = confusion_matrix(emhd['post_emotion'], emhd['reply_emotion'], normalize=None)
 plot_confussion_matrix(emhd_cm, e_index, name='EMHD', title='Heatmap', ylabel='Posts', xlabel='Replies', fmt='d')
+
+# %% That was fun wasn't it?
+print(':)')

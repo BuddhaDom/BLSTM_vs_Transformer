@@ -10,12 +10,12 @@ Curso de Seminario 1, Universidad de Lima, 2020
 <img src="images/BLSTM_model.png" alt="BLSTM Model" width="500"/><p>
 
 ## Reportes Generados:
-**Matriz de Confusion de modelo BLSTM EDNLP (Normalizado en ele eje de Prediccion)**
+### Matriz de Confusion de modelo BLSTM EDNLP (Normalizado en ele eje de Prediccion)
 <img src="images/EDNLP%20Confussion%20Matrix.png" alt="EDNLP Confussion Matrix" width="500"/>
 
 <p>
 
-**Reporte de Clasificacion de modelo BLSTM EDNLP**
+### Reporte de Clasificacion de modelo BLSTM EDNLP
 |            |precision|recall|f1-score|support|
 |------------|---------|------|--------|-------|
 |anger       |0.86     |0.83  |0.85    |275.00 |
@@ -29,5 +29,11 @@ Curso de Seminario 1, Universidad de Lima, 2020
 
 <p>
 
-**Distribucion de emocion en publicaciones y sus respuestas:**
+### Conteo de Emociones
+<img src="images/post_emotion_distrubtion.png" alt="EDNLP Confussion Matrix" width="300"/>
+<img src="images/reply_emotion_distrubtion.png" alt="EDNLP Confussion Matrix" width="300"/>
+
+<p>
+
+### Mapa de calor de emocion en publicaciones y sus respuestas
 <img src="images/EMHD%20Heatmap.png" alt="EMHD Heatmap" width="500"/>
