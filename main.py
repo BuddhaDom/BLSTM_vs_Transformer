@@ -310,7 +310,7 @@ except:
     model.save('models/EDNLP_BLSTM')
 
 print(model.summary())
-plot_model(model, to_file='images/BLSTM_model.png', show_layer_names=True, show_shapes=True)
+plot_model(model, to_file='images/BLSTM_model.png', show_shapes=True, show_layer_names=False)
 
 # %% TESTING BLSTM EDNLP
 
