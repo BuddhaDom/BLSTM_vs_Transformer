@@ -1,9 +1,10 @@
-# %% LIBRARIES AND RESOURCES
-
+# %% [markdown] INTRO
+# # ECM Preliminary Implementation
 # This script builds a BLSTM classification model for annotation of a dataset 
 # generated from a Convokit Corpus. Most specifically, 'mentalhealth' 
 # Subreddit posts and replies.
 
+# %% LIBRARIES AND RESOURCES
 from convokit import Corpus, download
 import pandas as pd
 from nltk.tokenize import word_tokenize
@@ -33,6 +34,12 @@ nltk.download('stopwords')
 nltk.download('wordnet')
 
 print('Libraries Loaded')
+
+# %% [markdown]
+# # Utilities and Functions
+# This long block are functions, utilities and variables that help
+# throughout the implementation that really starts next block.
+
 # %% PREPROCESSING AND UTILITY FUNCTIONS
 
 # Text that invalidates the whole row.
@@ -190,11 +197,15 @@ def sequencerPadder(data, tokenizer):
 
 print("Utility and Preprocessing Functions loaded.")
 
+# %% [markdown] 
+# # MHD Dataset
+# If the dataset already exists, just move on to the next step.
+# Otherwise, download and preprocess from convokit corpus
+
 # %% MHD DATASET LOAD OR GENERATE
 
 headers = ['post', 'reply']
-# If the dataset already exists, just move on to the next step.
-# Otherwise, download and preprocess from convokit corpus
+
 try:
     mhd = pd.read_csv('dataset/mental_health.csv')
     mhd = mhd.reset_index(drop=True)
@@ -222,6 +233,12 @@ except:
     print('Dataset written. ({:.2f}s)\n'.format(tock-tick))
 
 dataFrameStatus(mhd)
+
+# %% [markdown] 
+# # EDNLP Dataset 
+# Find and load the training, test and validation sets of the EDNLP Dataset. 
+# Also store them in a dictionary for quote-unquote EASY referencing later.
+
 # %% EDNLP DATASET BUILDING
 
 # Loading EDNLP Data
@@ -263,6 +280,11 @@ for key in ednlp:
     ednlp[key]['Xs'], ednlp[key]['Xp'] = sequencerPadder(ednlp[key]['X'], tokenizer)
 
 print('Sequences and Padded Sequences generated.')
+
+# %% [markdown] 
+# # EDNLP_BLSTM Emotion Classification Model
+# Attempt to load already-existing model.
+# Otherwise, build and train the model. 
 
 # %% EDNLP_BLSTM MODEL
 
@@ -312,6 +334,9 @@ except:
 print(model.summary())
 plot_model(model, to_file='images/BLSTM_model.png', show_shapes=True, show_layer_names=False)
 
+# %% [markdown]
+# # Testing BLSTM_EDNLP Model 
+# Plots a Confussion Matrix and generates a Classification report. Saves both.
 # %% TESTING BLSTM EDNLP
 
 testPrediction = predictAndChoose(model, ednlp['te']['Xp'])
@@ -326,6 +351,11 @@ print(report)
 ednlp_cm=confusion_matrix(ednlp['te']['y'], testPrediction, normalize='pred')
 plot_confussion_matrix(ednlp_cm, e_index, name='EDNLP', fmt='.2f', vmin=0, vmax=1)
 
+# %% [markdown]
+# # EMHD Dataset
+# Annotation of the MHD Dataset.
+# Attempt to lad already existing EMHD file.
+# Otherwise, anotate it from the MHD DataFrame.
 # %% ANNOTATING MHD, BECOMES EMHD
 eHeaders=['post', 'reply', 'post_emotion', 'reply_emotion']
 
@@ -353,6 +383,10 @@ except:
 
 dataFrameStatus(emhd)
 
+# %% [markdown]
+# # EMHD Reports and Plots
+# Plots and saves BarCount graphs and an interaction heatmap.
+
 # %% EMHD POST-REPLY REPORTS AND PLOTS
 
 #Countplots
@@ -364,5 +398,6 @@ plot_countbars(emhd, 'reply')
 emhd_cm = confusion_matrix(emhd['post_emotion'], emhd['reply_emotion'], normalize=None)
 plot_confussion_matrix(emhd_cm, e_index, name='EMHD', title='Heatmap', ylabel='Posts', xlabel='Replies', fmt='d', vmin=0)
 
-# %% That was fun wasn't it?
-print(':)')
+# %% [markdown] 
+# That was fun wasn't it?
+# # :)
