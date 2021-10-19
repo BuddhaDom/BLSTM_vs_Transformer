@@ -1,20 +1,19 @@
 # %% [markdown] INTRO
-# # ECM Preliminary Implementation
-# This script builds a BLSTM classification model for annotation of a dataset 
-# generated from a Convokit Corpus. Most specifically, 'mentalhealth' 
-# Subreddit posts and replies.
+# # BLSTM vs Transformers
+# This script builds and runs two classification models. One mdoel is built with
+# BLSTM layers while the other uses Transformer layers. The script also compares
+# the two models in both performance and time. 
 
 # %% LIBRARIES AND RESOURCES
-from convokit import Corpus, download
 import pandas as pd
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer, WordNetLemmatizer
 import nltk
-import sys, os, re, time
-import numpy as np
+import sys, re, time
 import matplotlib.pyplot as plt
 import seaborn as sb
+import tensorflow as tf
 from tensorflow import keras as keras
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -25,7 +24,6 @@ from tensorflow.keras.initializers import Constant
 from tensorflow.keras.optimizers import SGD, Adam
 from tensorflow.keras.utils import plot_model
 from sklearn.metrics import classification_report, confusion_matrix
-from numpy import array
 from collections import Counter
 
 # NLTK Resources
@@ -38,24 +36,31 @@ print('Libraries Loaded')
 # %% [markdown]
 # # Utilities and Functions
 # This long block are functions, utilities and variables that help
-# throughout the implementation that really starts next block.
+# throughout the implementation.
+
+# %% 
+# GPU MEMORY GROWTH
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+print("GPUs available:", len(physical_devices))
+try:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    print("GPU memory growth activated.")
+except:
+    print("GPU device could not be found. Memory growth will not be available.")
 
 # %% PREPROCESSING AND UTILITY FUNCTIONS
 
 # Text that invalidates the whole row.
 rowInvalidationText = ['', ' ', '[deleted]', '[removed]']
-# Additional stopwords
-extraStopwords = set(
-    ['reddit', 'redditor', 'reddits', 'subreddit', 'subreddits'])
 
+# Due to the low incidence of "love" and "surprise" on the EDNLP dataset, they are being coupled together for this implementation.
 emotionOther = ['love', 'surprise']
 
 # Variables for cleaner() method
 stemmer = PorterStemmer() # Stemmer
 lem = WordNetLemmatizer()  # Lematizer
 prelimStopwords = []
-stopWordList = set(stopwords.words('english')).union(
-    extraStopwords)  # List of Stopwords
+stopWordList = set(stopwords.words('english')) # List of Stopwords
 minWordLength = 3  # Minimum word length
 maxWordCount = 30  # Maximum words per post
 
@@ -82,7 +87,6 @@ def rawCleaner(post: str):
     post = re.sub(r'[^a-zA-Z\s]', '', post)  # Remove Non-letters
     post = post.lower()  # All to Lowercase
     post = word_tokenize(post)  # Tokenize text
-    post = [word for word in post if word not in extraStopwords]  # Extra SWs
     post = post[:maxWordCount]  # Limit word count (Post-Token Method)
     post = ' '.join(post)  # Rejoin token into a single string
     sys.stdout.write(f'\r{post[:30]}...')
@@ -198,43 +202,6 @@ def sequencerPadder(data, tokenizer):
 print("Utility and Preprocessing Functions loaded.")
 
 # %% [markdown] 
-# # MHD Dataset
-# If the dataset already exists, just move on to the next step.
-# Otherwise, download and preprocess from convokit corpus
-
-# %% MHD DATASET LOAD OR GENERATE
-
-headers = ['post', 'reply']
-
-try:
-    mhd = pd.read_csv('dataset/mental_health.csv')
-    mhd = mhd.reset_index(drop=True)
-    print('Mental Health Data found and Loaded\n')
-except:
-    print('Mental Health Dataset not found at dataset/mental_health.csv. Constructing Dataset. This might take a while...')
-    tick = time.time()
-    target_subreddit = 'subreddit-mentalhealth'
-    corpus = Corpus(download(target_subreddit))
-    corpus.print_summary_stats()
-    rawDataList = []
-    for uID in corpus.get_utterance_ids():
-        # Only evaluate for utterances that are, themselves, replies.
-        if (corpus.get_utterance(uID).reply_to != None):
-            try:
-                reply = corpus.get_utterance(uID)
-                post = corpus.get_utterance(reply.reply_to)
-            except:
-                pass
-            rawDataList.append([post.text, reply.text])
-    mhd = pd.DataFrame(rawDataList, columns=headers)
-    mhd = cleanDF(mhd, rowInvalidationText)
-    mhd.to_csv('dataset/mental_health.csv', index=False)
-    tock = time.time()
-    print('Dataset written. ({:.2f}s)\n'.format(tock-tick))
-
-dataFrameStatus(mhd)
-
-# %% [markdown] 
 # # EDNLP Dataset 
 # Find and load the training, test and validation sets of the EDNLP Dataset. 
 # Also store them in a dictionary for quote-unquote EASY referencing later.
@@ -265,7 +232,7 @@ try:
     for key in ednlp:
         print('Shape of',key,'\b features:',ednlp[key]['X'].shape)
 except:
-    print('EDNLP Dataset(s) not found. check for test, val and train CSVs at /dataset/EDNLP')
+    print('EDNLP Dataset(s) not found. Make sure test, val and train CSVs are available at at /dataset/EDNLP')
 
 # %% WORD INDEXING
 
@@ -350,53 +317,6 @@ print(report)
 # Confussion Matrix
 ednlp_cm=confusion_matrix(ednlp['te']['y'], testPrediction, normalize='pred')
 plot_confussion_matrix(ednlp_cm, e_index, name='EDNLP', fmt='.2f', vmin=0, vmax=1)
-
-# %% [markdown]
-# # EMHD Dataset
-# Annotation of the MHD Dataset.
-# Attempt to lad already existing EMHD file.
-# Otherwise, anotate it from the MHD DataFrame.
-# %% ANNOTATING MHD, BECOMES EMHD
-eHeaders=['post', 'reply', 'post_emotion', 'reply_emotion']
-
-# Attempt to lad already existing EMHD file.
-# Otherwise, anotate it from the MHD DataFrame.
-try:
-    emhd = pd.read_csv('dataset/emotional_mental_health.csv')
-    emhd = emhd.reset_index(drop=True)
-    print('Emotionally annotated dataset (EMHD) loaded')
-#Begin annotating MHD into EMHD
-except:
-    print('EMHD Not found at dataset/emotional_mental_health.csv. Contructing from MHD.')
-    emhd = mhd
-    for name, _ in mhd.iteritems():
-        sys.stdout.write(f'Annotating column "{name}" with emotion...\n')
-        start = time.time()
-        treated = mhd[name].apply(nlpTreatment)  # First apply NLP treatment
-        _, pSeq = sequencerPadder(treated, tokenizer) # Store padded sequences
-        emhd[f'{name}_emotion'] = predictAndChoose(model, pSeq) # Predict and annotate
-        end = time.time()
-        sys.stdout.write(
-            '\r\rColumn "{}" annotated. ({:.2f}s) ✓\n'.format(name, end - start))
-        sys.stdout.flush()
-    emhd.to_csv('dataset/emotional_mental_health.csv', index=False)
-
-dataFrameStatus(emhd)
-
-# %% [markdown]
-# # EMHD Reports and Plots
-# Plots and saves BarCount graphs and an interaction heatmap.
-
-# %% EMHD POST-REPLY REPORTS AND PLOTS
-
-#Countplots
-unique_posts_emhd = emhd.drop_duplicates(['post'])
-plot_countbars(unique_posts_emhd,'post')
-plot_countbars(emhd, 'reply')
-
-#Heatmap
-emhd_cm = confusion_matrix(emhd['post_emotion'], emhd['reply_emotion'], normalize=None)
-plot_confussion_matrix(emhd_cm, e_index, name='EMHD', title='Heatmap', ylabel='Posts', xlabel='Replies', fmt='d', vmin=0)
 
 # %% [markdown] 
 # That was fun wasn't it?
