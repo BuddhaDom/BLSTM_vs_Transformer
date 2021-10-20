@@ -5,6 +5,7 @@
 # the two models in both performance and time. 
 
 # %% LIBRARIES AND RESOURCES
+from os import name
 import pandas as pd
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -12,6 +13,7 @@ from nltk.stem import PorterStemmer, WordNetLemmatizer
 import nltk
 import sys, re, time
 import matplotlib.pyplot as plt
+from pandas.core.algorithms import mode
 import seaborn as sb
 from sklearn import metrics
 import tensorflow as tf
@@ -27,6 +29,10 @@ from tensorflow.keras.optimizers import SGD, Adam
 from tensorflow.keras.utils import plot_model
 from sklearn.metrics import classification_report, confusion_matrix
 from collections import Counter
+
+from tensorflow.python.keras.engine.training import Model
+from tensorflow.python.ops.gen_math_ops import Mod
+from tensorflow.python.ops.math_ops import argmax
 
 # NLTK Resources
 nltk.download('punkt')
@@ -166,7 +172,7 @@ def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix
 
     ax.set(ylabel=ylabel, xlabel=xlabel)
 
-    plt.savefig(f'images/{name} {title}.png', bboc_inches='tight', dpi=300)
+    plt.savefig(f'images/{name} {title}.png', dpi=300)
     plt.show()
     plt.close()
 
@@ -183,12 +189,12 @@ def plot_countbars(data, name):
     
     plt.gcf().subplots_adjust(left=0.25)
 
-    plt.savefig(f'images/{name}_emotion_distrubtion.png', bboc_inches='tight', dpi=300)
+    plt.savefig(f'images/{name}_emotion_distrubtion.png', dpi=300)
     plt.show()
     plt.close()
 
 # Choose the highest values from a set of predicted features.
-def predictAndChoose(model, data):
+def predictAndChoose(model:Model, data):
     data = model.predict(data, verbose=1)
     data = data.argmax(axis=1)
     return data
@@ -198,6 +204,14 @@ def sequencerPadder(data, tokenizer):
     sequence = tokenizer.texts_to_sequences(data) # Features as Sequences
     paddedSequence = pad_sequences(sequence, maxlen=maxWordCount, padding='post', truncating='post') #Features as Padded Sequences
     return sequence, paddedSequence
+
+def predictText(model:Model, text:str, tokenizer:Tokenizer):
+    sequence = tokenizer.texts_to_sequences([text]) # Features as Sequences
+    paddedSequence = pad_sequences(sequence, maxlen=maxWordCount, padding='post', truncating='post') #Features as Padded Sequences
+    pred = model.predict(paddedSequence)
+    pred = pred.argmax(axis=1)
+    return f"Model: {model.name}\nText: {text}\nPrediction: {e_index[pred][0]}"
+    
 
 print("Utility and Preprocessing Functions loaded.")
 
@@ -258,12 +272,12 @@ print('Sequences and Padded Sequences generated.')
 # Attempt to load already-existing model.
 # Otherwise, build and train the model.
 try:
-    BLSTM_model = keras.models.load_model('models/EDNLP_BLSTM')
+    BLSTM_model : Model = keras.models.load_model('models/EDNLP_BLSTM')
     print('EDNLP_BLSTM Model loaded.\n')
 except:
     print('EDNLP_BLSTM Model not found at models/EDNLP_BLSTM. Building model.')
     # Model Structure
-    BLSTM_model = Sequential(name='EDNLP_BLSTM')
+    BLSTM_model : Model = Sequential(name='EDNLP_BLSTM')
 
     scaleFactor = 8
     embedOutput = 32
@@ -307,7 +321,7 @@ plot_model(BLSTM_model, to_file='images/BLSTM_model.png', show_shapes=True, show
 # Attempt to load already-existing model.
 # Otherwise, build and train the model.
 try:
-    TRNS_model = keras.models.load_model('models/EDNLP_TRNS')
+    TRNS_model : Model = keras.models.load_model('models/EDNLP_TRNS')
     print('EDNLP_TRNS Model loaded.\n')
 except:
     print('EDNLP_TRNS Model not found at models/EDNLP_TRNS. Building model.')
@@ -361,7 +375,7 @@ except:
     x = layers.Dropout(0.1)(x)
     outputs = layers.Dense(len(e_index), activation="softmax")(x)
 
-    TRNS_model = keras.Model(inputs=inputs, outputs=outputs)
+    TRNS_model : Model = keras.Model(inputs=inputs, outputs=outputs, name="ENDLP_TRNS")
 
     TRNS_model.compile(
         loss = "sparse_categorical_crossentropy",
@@ -373,7 +387,7 @@ except:
     history = TRNS_model.fit(
         ednlp['tr']['Xp'], ednlp['tr']['y'],
         batch_size=32,
-        epochs=2,
+        epochs=21,
         use_multiprocessing=True,
         validation_data=(ednlp['va']['Xp'], ednlp['va']['y'])
     )
@@ -382,7 +396,6 @@ except:
     print('Saving model...\n')
     TRNS_model.save('models/EDNLP_TRNS')
 
-#%%
 print(TRNS_model.summary())
 plot_model(TRNS_model, to_file='images/TRNS_model.png', show_shapes=True, show_layer_names=False)
 
@@ -421,3 +434,16 @@ plot_confussion_matrix(trns_cm, e_index, name='EDNLP_TRNS', fmt='.2f', vmin=0, v
 # %% [markdown] 
 # That was fun wasn't it?
 # # :)
+
+# %% [markdown]
+# # Live Tests
+# Test the models in real time.
+
+# %% Live test: BLSTM
+testText = input("Please input a string to predict:")
+print(predictText(BLSTM_model, testText, tokenizer))
+
+# %% Live test: TRANSFORMER
+testText = input("Please input a string to predict:")
+print(predictText(TRNS_model, testText, tokenizer))
+# %%
