@@ -13,7 +13,9 @@ import nltk
 import sys, re, time
 import matplotlib.pyplot as plt
 import seaborn as sb
+from sklearn import metrics
 import tensorflow as tf
+import tensorflow.keras.layers as layers
 from tensorflow import keras as keras
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -50,10 +52,8 @@ except:
 
 # %% PREPROCESSING AND UTILITY FUNCTIONS
 
-# Text that invalidates the whole row.
-rowInvalidationText = ['', ' ', '[deleted]', '[removed]']
-
-# Due to the low incidence of "love" and "surprise" on the EDNLP dataset, they are being coupled together for this implementation.
+# Due to the low incidence of "love" and "surprise" on the EDNLP dataset, 
+# they are being coupled together under the same category for this implementation.
 emotionOther = ['love', 'surprise']
 
 # Variables for cleaner() method
@@ -249,7 +249,7 @@ for key in ednlp:
 print('Sequences and Padded Sequences generated.')
 
 # %% [markdown] 
-# # EDNLP_BLSTM Emotion Classification Model
+# # BLSTM Classification Model
 # Attempt to load already-existing model.
 # Otherwise, build and train the model. 
 
@@ -258,16 +258,17 @@ print('Sequences and Padded Sequences generated.')
 # Attempt to load already-existing model.
 # Otherwise, build and train the model.
 try:
-    model = keras.models.load_model('models/EDNLP_BLSTM')
+    BLSTM_model = keras.models.load_model('models/EDNLP_BLSTM')
     print('EDNLP_BLSTM Model loaded.\n')
 except:
     print('EDNLP_BLSTM Model not found at models/EDNLP_BLSTM. Building model.')
     # Model Structure
-    model = Sequential(name='EDNLP_BLSTM')
+    BLSTM_model = Sequential(name='EDNLP_BLSTM')
 
     scaleFactor = 8
     embedOutput = 32
 
+    # Number of LSTM units necessary.
     lstmUnits = int(round(
         len(ednlp['tr']['Xp'])
         /
@@ -276,19 +277,19 @@ except:
 
     print('Target Outputs for unidirectional LSTM Layer:',lstmUnits)
 
-    model.add(Embedding(numWords, embedOutput, input_length=maxWordCount, name='embedding'))
-    model.add(Bidirectional(LSTM(lstmUnits, dropout=0.1), name='blstm'))
-    model.add(Dense(len(e_index), activation='sigmoid', name='dense'))
+    BLSTM_model.add(Embedding(numWords, embedOutput, input_length=maxWordCount, name='embedding'))
+    BLSTM_model.add(Bidirectional(LSTM(lstmUnits, dropout=0.1), name='blstm'))
+    BLSTM_model.add(Dense(len(e_index), activation='sigmoid', name='dense'))
 
-    model.get_layer('embedding')
+    BLSTM_model.get_layer('embedding')
 
-    model.compile(
+    BLSTM_model.compile(
         loss='sparse_categorical_crossentropy',
         optimizer = Adam(learning_rate=3e-4),
         metrics=['accuracy'])
 
     #Model Training
-    history =  model.fit(
+    history =  BLSTM_model.fit(
         ednlp['tr']['Xp'], ednlp['tr']['y'],
         epochs=21,
         use_multiprocessing=True,
@@ -296,27 +297,126 @@ except:
     )
     # Save model
     print('Saving model...\n')
-    model.save('models/EDNLP_BLSTM')
+    BLSTM_model.save('models/EDNLP_BLSTM')
 
-print(model.summary())
-plot_model(model, to_file='images/BLSTM_model.png', show_shapes=True, show_layer_names=False)
+print(BLSTM_model.summary())
+plot_model(BLSTM_model, to_file='images/BLSTM_model.png', show_shapes=True, show_layer_names=False)
+
+# %% Transformer Classification Model
+
+# Attempt to load already-existing model.
+# Otherwise, build and train the model.
+try:
+    TRNS_model = keras.models.load_model('models/EDNLP_TRNS')
+    print('EDNLP_TRNS Model loaded.\n')
+except:
+    print('EDNLP_TRNS Model not found at models/EDNLP_TRNS. Building model.')
+    
+    # Transformer block layer class
+    class TransformerBlock(layers.Layer):
+        def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1):
+            super(TransformerBlock, self).__init__()
+            self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+            self.ffn = keras.Sequential(
+                [layers.Dense(ff_dim, activation="relu"), layers.Dense(embed_dim),]
+            )
+            self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
+            self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
+            self.dropout1 = layers.Dropout(rate)
+            self.dropout2 = layers.Dropout(rate)
+
+        def call(self, inputs, training):
+            attn_output = self.att(inputs, inputs)
+            attn_output = self.dropout1(attn_output, training=training)
+            out1 = self.layernorm1(inputs + attn_output)
+            ffn_output = self.ffn(out1)
+            ffn_output = self.dropout2(ffn_output, training=training)
+            return self.layernorm2(out1 + ffn_output)
+
+    class TokenAndPositionEmbedding(layers.Layer):
+        def __init__(self, maxlen, vocab_size, embed_dim):
+            super(TokenAndPositionEmbedding, self).__init__()
+            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
+            self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
+
+        def call(self, x):
+            maxlen = tf.shape(x)[-1]
+            positions = tf.range(start=0, limit=maxlen, delta=1)
+            positions = self.pos_emb(positions)
+            x = self.token_emb(x)
+            return x + positions
+
+    embed_dim = 32  # Embedding size for each token
+    num_heads = 2  # Number of attention heads
+    ff_dim = 32  # Hidden layer size in feed forward network inside transformer
+
+    inputs = layers.Input(shape=(maxWordCount,))
+    embedding_layer = TokenAndPositionEmbedding(maxWordCount, numWords, embed_dim)
+    x = embedding_layer(inputs)
+    transformer_block = TransformerBlock(embed_dim, num_heads, ff_dim)
+    x = transformer_block(x)
+    x = layers.GlobalAveragePooling1D()(x)
+    x = layers.Dropout(0.1)(x)
+    x = layers.Dense(20, activation="relu")(x)
+    x = layers.Dropout(0.1)(x)
+    outputs = layers.Dense(len(e_index), activation="softmax")(x)
+
+    TRNS_model = keras.Model(inputs=inputs, outputs=outputs)
+
+    TRNS_model.compile(
+        loss = "sparse_categorical_crossentropy",
+        optimizer = Adam(learning_rate=3e-4),
+        metrics=["accuracy"]
+    )
+
+    # Model Training
+    history = TRNS_model.fit(
+        ednlp['tr']['Xp'], ednlp['tr']['y'],
+        batch_size=32,
+        epochs=2,
+        use_multiprocessing=True,
+        validation_data=(ednlp['va']['Xp'], ednlp['va']['y'])
+    )
+
+    # Save model
+    print('Saving model...\n')
+    TRNS_model.save('models/EDNLP_TRNS')
+
+#%%
+print(TRNS_model.summary())
+plot_model(TRNS_model, to_file='images/TRNS_model.png', show_shapes=True, show_layer_names=False)
 
 # %% [markdown]
-# # Testing BLSTM_EDNLP Model 
-# Plots a Confussion Matrix and generates a Classification report. Saves both.
+# # Testing the Models 
+# Plots a Confussion Matrix and generates a Classification report for both models.
+
 # %% TESTING BLSTM EDNLP
 
-testPrediction = predictAndChoose(model, ednlp['te']['Xp'])
+BLSTM_testPrediction = predictAndChoose(BLSTM_model, ednlp['te']['Xp'])
 
 # Accuracy, Presicion, Recall, and F1-Score
-report=classification_report(ednlp['te']['y'], testPrediction, target_names=e_index, output_dict=True)
-report=pd.DataFrame(report).transpose()
-report.to_csv('reports/ednlp.csv', float_format='%.2f')
-print(report)
+blstm_report=classification_report(ednlp['te']['y'], BLSTM_testPrediction, target_names=e_index, output_dict=True)
+blstm_report=pd.DataFrame(blstm_report).transpose()
+blstm_report.to_csv('reports/blstm.csv', float_format='%.2f')
+print(blstm_report)
 
 # Confussion Matrix
-ednlp_cm=confusion_matrix(ednlp['te']['y'], testPrediction, normalize='pred')
-plot_confussion_matrix(ednlp_cm, e_index, name='EDNLP', fmt='.2f', vmin=0, vmax=1)
+blstm_cm=confusion_matrix(ednlp['te']['y'], BLSTM_testPrediction, normalize='pred')
+plot_confussion_matrix(blstm_cm, e_index, name='EDNLP_BLSTM', fmt='.2f', vmin=0, vmax=1)
+
+# %% TESTING TRNS EDNLP
+
+TRNS_testPrediction = predictAndChoose(TRNS_model, ednlp['te']['Xp'])
+
+# Accuracy, Presicion, Recall, and F1-Score
+trns_report=classification_report(ednlp['te']['y'], TRNS_testPrediction, target_names=e_index, output_dict=True)
+trns_report=pd.DataFrame(trns_report).transpose()
+trns_report.to_csv('reports/trns.csv', float_format='%.2f')
+print(trns_report)
+
+# Confussion Matrix
+trns_cm=confusion_matrix(ednlp['te']['y'], TRNS_testPrediction, normalize='pred')
+plot_confussion_matrix(trns_cm, e_index, name='EDNLP_TRNS', fmt='.2f', vmin=0, vmax=1)
 
 # %% [markdown] 
 # That was fun wasn't it?
