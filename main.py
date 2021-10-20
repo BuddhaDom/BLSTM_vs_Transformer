@@ -431,10 +431,6 @@ print(trns_report)
 trns_cm=confusion_matrix(ednlp['te']['y'], TRNS_testPrediction, normalize='pred')
 plot_confussion_matrix(trns_cm, e_index, name='EDNLP_TRNS', fmt='.2f', vmin=0, vmax=1)
 
-# %% [markdown] 
-# That was fun wasn't it?
-# # :)
-
 # %% [markdown]
 # # Live Tests
 # Test the models in real time.
@@ -446,4 +442,7 @@ print(predictText(BLSTM_model, testText, tokenizer))
 # %% Live test: TRANSFORMER
 testText = input("Please input a string to predict:")
 print(predictText(TRNS_model, testText, tokenizer))
-# %%
+
+# %% [markdown] 
+# That was fun wasn't it?
+# # :)
