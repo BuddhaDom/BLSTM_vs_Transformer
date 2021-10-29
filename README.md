@@ -1,39 +1,57 @@
-# Camino a un modelo ECM
-Implementacion preliminr de un sistema ECM Seq2Seq.
+Implementación para Curso de Seminario 2 (2021-2), Universidad de Lima
 
-Curso de Seminario 1, Universidad de Lima, 2020
-## Progreso actual: 
-* Constuccion de base de dtos de salud mental anotada con emociones (EMHD)
-* Modelo BLSTM para categorizacion de emociones
+# Estructura de Modelos:
+|BLSTM|Transformer|
+|:---:|:---------:|
+|<img src="images/BLSTM_model.png" alt="BLSTM Model" width="350"/>|<img src="images/TRNS_model.png" alt="Transformer Model" width="350"/>|
 
-## Modelo BLSTM:
-<img src="images/BLSTM_model.png" alt="BLSTM Model" width="500"/><p>
+<br>
 
-## Reportes Generados:
-### Matriz de Confusion de modelo BLSTM EDNLP (Normalizado en ele eje de Prediccion)
-<img src="images/EDNLP%20Confussion%20Matrix.png" alt="EDNLP Confussion Matrix" width="500"/>
+# Matrizes de Confusion
+|BLSTM|Transformer|
+|:---:|:---------:|
+|<img src="images/EDNLP_BLSTM%20Confussion%20Matrix.png" alt="EDNLP Confussion Matrix" width="350"/>|<img src="images/EDNLP_TRNS%20Confussion%20Matrix.png" alt="TRNS Confussion Matrix" width="350"/>|
 
-<p>
+<br>
 
-### Reporte de Clasificacion de modelo BLSTM EDNLP
+# Reportes
+<!-- CSV to MD Table: https://www.convertcsv.com/csv-to-markdown.htm -->
+## BLSTM
 |            |precision|recall|f1-score|support|
-|------------|---------|------|--------|-------|
-|anger       |0.86     |0.83  |0.85    |275.00 |
-|fear        |0.78     |0.84  |0.81    |224.00 |
-|joy         |0.91     |0.83  |0.87    |695.00 |
-|other       |0.61     |0.75  |0.67    |225.00 |
-|sadness     |0.90     |0.91  |0.90    |581.00 |
-|accuracy    |0.84     |0.84  |0.84    |0.84   |
-|macro avg   |0.81     |0.83  |0.82    |2000.00|
-|weighted avg|0.85     |0.84  |0.85    |2000.00|
+|:----------:|:-------:|:----:|:------:|:-----:|
+|   anger    |  0.87   | 0.79 |  0.83  |275    |
+|    fear    |  0.80   | 0.82 |  0.81  |224    |
+|    joy     |  0.84   | 0.92 |  0.88  |695    |
+|   other    |  0.69   | 0.56 |  0.62  |225    |
+|  sadness   |  0.89   | 0.88 |  0.89  |581    |
+| macro avg  |  0.82   | 0.80 |  0.80  |2000   |
+|weighted avg|  0.84   | 0.84 |  0.84  |2000   |
+|
+|  accuracy  ||  0.84  |
+|train time  || 49.73  |
 
-<p>
+<br>
 
-### Conteo de Emociones
-<img src="images/post_emotion_distrubtion.png" alt="EDNLP Confussion Matrix" width="300"/>
-<img src="images/reply_emotion_distrubtion.png" alt="EDNLP Confussion Matrix" width="300"/>
+## Transformer
 
-<p>
+|            |precision|recall|f1-score|support|
+|:----------:|:-------:|:----:|:------:|:-----:|
+|   anger    |  0.90   | 0.79 |  0.84  |275    |
+|    fear    |  0.82   | 0.83 |  0.82  |224    |
+|    joy     |  0.88   | 0.91 |  0.89  |695    |
+|   other    |  0.69   | 0.72 |  0.70  |225    |
+|  sadness   |  0.90   | 0.89 |  0.90  |581    |
+| macro avg  |  0.84   | 0.83 |  0.83  |2000   |
+|weighted avg|  0.86   | 0.86 |  0.86  |2000   |
+|
+|  accuracy  ||  0.86  |
+| train time || 37.23  |
+<br>
 
-### Mapa de calor de emocion en publicaciones y sus respuestas
-<img src="images/EMHD%20Heatmap.png" alt="EMHD Heatmap" width="500"/>
+# Comparacion
+||BLSTM|Transformer|
+|:-:|:---:|:---------:|
+|Valor F1 |0.84|0.86|
+|Presición|0.84|0.86|
+|Exactitud|0.84|0.86|
+|Tiempo en entrenamiento|49.73|37.23
