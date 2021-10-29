@@ -26,9 +26,11 @@ Implementación para Curso de Seminario 2 (2021-2), Universidad de Lima
 |  sadness   |  0.89   | 0.88 |  0.89  |581    |
 | macro avg  |  0.82   | 0.80 |  0.80  |2000   |
 |weighted avg|  0.84   | 0.84 |  0.84  |2000   |
-|
-|  accuracy  ||  0.84  |
-|train time  || 49.73  |
+
+|||
+|-|-|
+|  accuracy  |  0.84  |
+|train time  | 49.73  |
 
 <br>
 
@@ -43,13 +45,15 @@ Implementación para Curso de Seminario 2 (2021-2), Universidad de Lima
 |  sadness   |  0.90   | 0.89 |  0.90  |581    |
 | macro avg  |  0.84   | 0.83 |  0.83  |2000   |
 |weighted avg|  0.86   | 0.86 |  0.86  |2000   |
-|
-|  accuracy  ||  0.86  |
-| train time || 37.23  |
+
+|||
+|-|-|
+|  accuracy  |  0.86  |
+| train time | 37.23  |
 <br>
 
-# Comparacion
-||BLSTM|Transformer|
+# Comparación
+|Criterio|BLSTM|Transformer|
 |:-:|:---:|:---------:|
 |Valor F1 |0.84|0.86|
 |Presición|0.84|0.86|
