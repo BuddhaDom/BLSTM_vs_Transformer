@@ -5,34 +5,27 @@
 # the two models in both performance and time. 
 
 # %% LIBRARIES AND RESOURCES
-from os import name
-import pandas as pd
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
-from nltk.stem import PorterStemmer, WordNetLemmatizer
-import nltk
-import sys, re, time
-import matplotlib.pyplot as plt
-from pandas.core.algorithms import mode
-import seaborn as sb
-from sklearn import metrics
-import tensorflow as tf
 import tensorflow.keras.layers as layers
-from tensorflow import keras as keras
+import tensorflow as tf
+import sys, time
+import seaborn as sb
+import pandas as pd
+import nltk
+import matplotlib.pyplot as plt
+from tensorflow.python.keras.engine.training import Model
+from tensorflow.keras.utils import plot_model
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.activations import relu, sigmoid
-from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout, Bidirectional
-from tensorflow.keras.initializers import Constant
-from tensorflow.keras.optimizers import SGD, Adam
-from tensorflow.keras.utils import plot_model
+from tensorflow.keras.layers import Embedding, LSTM, Dense, Bidirectional
+from tensorflow import keras as keras
 from sklearn.metrics import classification_report, confusion_matrix
+from pandas.core.algorithms import mode
+from nltk.tokenize import word_tokenize
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+from nltk.corpus import stopwords
 from collections import Counter
-
-from tensorflow.python.keras.engine.training import Model
-from tensorflow.python.ops.gen_math_ops import Mod
-from tensorflow.python.ops.math_ops import argmax
 
 # NLTK Resources
 nltk.download('punkt')
@@ -47,7 +40,7 @@ print('Libraries Loaded')
 # throughout the implementation.
 
 # %% 
-# GPU MEMORY GROWTH
+## GPU MEMORY GROWTH
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 print("GPUs available:", len(physical_devices))
 try:
@@ -56,47 +49,29 @@ try:
 except:
     print("GPU device could not be found. Memory growth will not be available.")
 
-# %% PREPROCESSING AND UTILITY FUNCTIONS
+## VARIABLES
 
 # Due to the low incidence of "love" and "surprise" on the EDNLP dataset, 
 # they are being coupled together under the same category for this implementation.
 emotionOther = ['love', 'surprise']
 
-# Variables for cleaner() method
+# NLP variables
 stemmer = PorterStemmer() # Stemmer
 lem = WordNetLemmatizer()  # Lematizer
-prelimStopwords = []
 stopWordList = set(stopwords.words('english')) # List of Stopwords
 minWordLength = 3  # Minimum word length
-maxWordCount = 30  # Maximum words per post
+
+# Variables relevant for model creation.
+maxWordCount = 100  # Maximum words per post
+m_epochs = 10
+m_batchSize = 32
+m_useMultiprocessing = True
+m_lossFunction = 'sparse_categorical_crossentropy'
+m_optimizer = Adam(learning_rate=3e-4)
+m_metrics = ['accuracy']
 
 
-# Simple Report of selected Dataframe
-def dataFrameStatus(df: pd.DataFrame):
-    print(f'Dataframe shape: {df.shape}')
-    for name, _ in df.iteritems():
-        print(f'Number of {name}: {df[name].nunique()}')
-    print(df.sample(5),'\n')
-
-
-# Remove invalid posts
-def removeInvalidPosts(df: pd.DataFrame, invalidTextList: list) -> pd.DataFrame:
-    for invalidText in invalidTextList:
-        for name, _ in df.iteritems():
-            df = df[df[name] != invalidText]
-    df = df.reset_index(drop=True)
-    return df
-
-# Partial preprocessing of text.
-def rawCleaner(post: str):
-    post = re.sub(r'http\S+', '', post)  # Remove URLs
-    post = re.sub(r'[^a-zA-Z\s]', '', post)  # Remove Non-letters
-    post = post.lower()  # All to Lowercase
-    post = word_tokenize(post)  # Tokenize text
-    post = post[:maxWordCount]  # Limit word count (Post-Token Method)
-    post = ' '.join(post)  # Rejoin token into a single string
-    sys.stdout.write(f'\r{post[:30]}...')
-    return post
+## PREPROCESSING AND UTILITY FUNCTIONS
 
 # Preprocessing for NLP purposes
 def nlpTreatment(entry: str, lemmatizer_over_stemmer: bool = True):
@@ -110,25 +85,6 @@ def nlpTreatment(entry: str, lemmatizer_over_stemmer: bool = True):
     entry = ' '.join(entry)
     sys.stdout.write(f'\r{entry[:30]}...')
     return entry
-
-# Run the RawCleaner on the selected Dataframe
-def cleanDF(df: pd.DataFrame, rowInvalidationText: list) -> pd.DataFrame:
-    tick = time.time()
-    df = removeInvalidPosts(df, rowInvalidationText)
-    for name, _ in df.iteritems():
-        sys.stdout.write(f'Cleaning raw column "{name}"...\n')
-        start = time.time()
-        df[name] = df[name].apply(rawCleaner)
-        end = time.time()
-        sys.stdout.write(
-            '\r\rColumn "{}" cleaned ({:.2f}s) ✓\n'.format(name, end - start))
-        sys.stdout.flush()
-    # removeInvalidPosts() is executed twice because it is possible for the clean()
-    # function to return a now invalid value, which would invalidate the row.
-    df = removeInvalidPosts(df, rowInvalidationText)
-    tock = time.time()
-    print('Finished preprocessing ({:.2f}s Total)\n'.format(tock-tick))
-    return df
 
 # Splitting function for EDNLP specifically.
 def ednlpSplitter(df: pd.DataFrame, headers: list) -> set:
@@ -153,11 +109,6 @@ def counter_word(texts) -> int:
             count[word] += 1
     return count
 
-# Inverse translation from a Padded text sequence back to text (Which ahs been Lematized or Stemmed)
-def decodeWordIndex(text, wordIndex):
-    reverse_word_index = dict([(value, key) for (key, value) in wordIndex.items()])
-    return ' '.join([reverse_word_index.get(i, "?") for i in text])
-
 # Plotting of confussion matrixes or heatmaps.
 def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix', annot=True, fmt='.2f', ylabel='True', xlabel='Predicted', vmin=None, vmax=None):
     sb.set(color_codes=True)
@@ -173,23 +124,6 @@ def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix
     ax.set(ylabel=ylabel, xlabel=xlabel)
 
     plt.savefig(f'images/{name} {title}.png', dpi=300)
-    plt.show()
-    plt.close()
-
-#Plotting of Countbar graphs.
-def plot_countbars(data, name):
-    sb.set(color_codes=True)
-    plt.figure(figsize=(4,4))
-    plt.title = (f'{name} Emotion Distribution'.capitalize())
-
-    ax = sb.countplot(data=data, x=f'{name}_emotion', palette='YlGnBu')
-    ax.set_xticklabels(e_index)
-    ax.set_title(f'{name} Emotion Distribution'.capitalize())
-    ax.set(ylabel='Count', xlabel='Emotion')
-    
-    plt.gcf().subplots_adjust(left=0.25)
-
-    plt.savefig(f'images/{name}_emotion_distrubtion.png', dpi=300)
     plt.show()
     plt.close()
 
@@ -274,6 +208,11 @@ print('Sequences and Padded Sequences generated.')
 try:
     BLSTM_model : Model = keras.models.load_model('models/EDNLP_BLSTM')
     print('EDNLP_BLSTM Model loaded.\n')
+
+    blstm_timefile = open("reports/blstm_time.txt", "r")
+    blstm_train_time = str(blstm_timefile.read())
+    blstm_timefile.close()
+
 except:
     print('EDNLP_BLSTM Model not found at models/EDNLP_BLSTM. Building model.')
     # Model Structure
@@ -298,21 +237,35 @@ except:
     BLSTM_model.get_layer('embedding')
 
     BLSTM_model.compile(
-        loss='sparse_categorical_crossentropy',
-        optimizer = Adam(learning_rate=3e-4),
-        metrics=['accuracy'])
+        loss = m_lossFunction,
+        optimizer = m_optimizer,
+        metrics = m_metrics)
 
+
+    tick = time.time()
     #Model Training
     history =  BLSTM_model.fit(
         ednlp['tr']['Xp'], ednlp['tr']['y'],
-        epochs=21,
-        use_multiprocessing=True,
+        batch_size = m_batchSize,
+        epochs = m_epochs,
+        use_multiprocessing = m_useMultiprocessing,
         validation_data=(ednlp['va']['Xp'], ednlp['va']['y'])
     )
+    tock = time.time()
+
+    blstm_train_time = tock-tick
+
+    
     # Save model
     print('Saving model...\n')
+    print(blstm_train_time)
     BLSTM_model.save('models/EDNLP_BLSTM')
+    blstm_timefile = open("reports/blstm_time.txt", "w")
+    blstm_timefile.write(str(blstm_train_time))
+    blstm_timefile.close()
 
+
+# Print and plot the model.
 print(BLSTM_model.summary())
 plot_model(BLSTM_model, to_file='images/BLSTM_model.png', show_shapes=True, show_layer_names=False)
 
@@ -378,24 +331,33 @@ except:
     TRNS_model : Model = keras.Model(inputs=inputs, outputs=outputs, name="ENDLP_TRNS")
 
     TRNS_model.compile(
-        loss = "sparse_categorical_crossentropy",
-        optimizer = Adam(learning_rate=3e-4),
-        metrics=["accuracy"]
+        loss = m_lossFunction,
+        optimizer = m_optimizer,
+        metrics = m_metrics
     )
 
+    tick=time.time()
     # Model Training
     history = TRNS_model.fit(
         ednlp['tr']['Xp'], ednlp['tr']['y'],
-        batch_size=32,
-        epochs=21,
-        use_multiprocessing=True,
+        batch_size = m_batchSize,
+        epochs = m_epochs,
+        use_multiprocessing = m_useMultiprocessing,
         validation_data=(ednlp['va']['Xp'], ednlp['va']['y'])
     )
+    tock=time.time()
+
+    trns_train_time = tock-tick
 
     # Save model
     print('Saving model...\n')
+    trns_timefile = open("reports/trns_time.txt", "w")
+    trns_timefile.write(str(trns_train_time))
+    trns_timefile.close()
+    print(trns_train_time)
     TRNS_model.save('models/EDNLP_TRNS')
 
+# Print and plot the model.
 print(TRNS_model.summary())
 plot_model(TRNS_model, to_file='images/TRNS_model.png', show_shapes=True, show_layer_names=False)
 
