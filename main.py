@@ -19,25 +19,18 @@ import seaborn as sb
 import tensorflow as tf
 import tensorflow.keras.layers as layers
 from nltk.corpus import stopwords
-from nltk.corpus.reader.chasen import test
 from nltk.stem import PorterStemmer, WordNetLemmatizer
-from nltk.tokenize import sent_tokenize, word_tokenize
-from pandas.core.algorithms import mode
-from pandas.core.frame import DataFrame
+from nltk.tokenize import word_tokenize
 from sklearn.metrics import classification_report, confusion_matrix
 from tensorflow import keras as keras
 from tensorflow.keras.layers import LSTM, Bidirectional, Dense, Embedding
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.preprocessing import sequence
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.utils import plot_model
 from tensorflow.python.keras import callbacks
-from tensorflow.python.keras.backend import dtype
 from tensorflow.python.keras.engine.training import Model
-from tensorflow.python.ops.gen_math_ops import mod
-from tensorflow.python.util.nest import _sequence_like
 
 # NLTK Resources
 nltk.download('punkt')
@@ -248,8 +241,8 @@ print("Utility and Preprocessing Functions loaded.")
 # %% [markdown] 
 # # EDNLP Dataset 
 # Find and load the training, test and validation sets of the EDNLP Dataset. 
-# Also store them in a dictionary for quote-unquote EASY referencing later.
-
+# Also store them in a dictionary for quote-unquote EASY referencing later.*
+# *Some months later I can say this was a terrible idea but it is what it is now, DONT DO THIS
 # %% EDNLP DATASET BUILDING
 
 # Loading EDNLP Data
@@ -288,9 +281,9 @@ tokenizer = Tokenizer(num_words=numWords)
 tokenizer.fit_on_texts(ednlp['tr']['X'])
 word_index = tokenizer.word_index
 
-# Xp: X as a padded sequence of length equivalent to the value of SequenceLengthLong
-# Xps: X as a padded sequence of length equivalent to the value of SequenceLengthShort
-# Ys: Y for the small padded sequences. 
+# Xp: X as a padded sequences of length equivalent to the value of SequenceLengthLong
+# Xps: X as a padded sequences of length equivalent to the value of SequenceLengthShort
+# Ys: Y for the small padded sequences set.
 for key in ednlp:
     ednlp[key]['Xp'], ednlp[key]['Xps'], ednlp[key]['ys'] = sequencerPadder(ednlp[key], tokenizer)
 
@@ -298,22 +291,14 @@ print(f"Long Set Size: {len(ednlp['tr']['Xp'])}, Sequence Length: {len(ednlp['tr
 print(f"Short Set Size: {len(ednlp['tr']['Xps'])}, Sequence Length: {len(ednlp['tr']['Xps'][0])}")
 print(f"Short Set Labels Size: {len(ednlp['tr']['ys'])}")
 
-
-for col in ednlp['tr']:
-    print(col, type(ednlp['tr'][col]))
-
-
 print('Long and Short Padded Sequences generated.')
 
 # %% [markdown] 
 # # BLSTM Classification Model
-# Attempt to load already-existing model.
-# Otherwise, build and train the model. 
-
-# %% EDNLP_BLSTM MODEL
-
-# Attempt to load already-existing models.
+# Attempt to load already-existing models for Long and Short max sequence sizes.
 # Otherwise, build and train the models.
+
+# %% EDNLP_BLSTM Models
 
 def BLSTM_LoadOrCreate(maxSequenceLength) -> Model:
     modelName=f"BLSTM_{maxSequenceLength}"
@@ -353,10 +338,12 @@ ModelPlotAndSummary(BLSTM_100_MODEL)
 ModelPlotAndSummary(BLSTM_20_MODEL)
 
 
-# %% Transformer Classification Model
+# %% [markdown] 
+# # Transformer Classification Model
+# Attempt to load already-existing models for Long and Short max sequence sizes.
+# Otherwise, build and train the models.
 
-# Attempt to load already-existing model.
-# Otherwise, build and train the model.
+# %% EDNLP Transformer Models
 
 def TRNS_LoadOrCreate(maxSequenceLength) -> Model:
     trns_modelName = f"TRNS_{maxSequenceLength}"
