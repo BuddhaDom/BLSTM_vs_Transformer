@@ -5,27 +5,39 @@
 # the two models in both performance and time. 
 
 # %% LIBRARIES AND RESOURCES
-import tensorflow.keras.layers as layers
-import tensorflow as tf
-import sys, time
-import seaborn as sb
-import pandas as pd
-import nltk
-import matplotlib.pyplot as plt
-from tensorflow.python.keras.engine.training import Model
-from tensorflow.keras.utils import plot_model
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Embedding, LSTM, Dense, Bidirectional
-from tensorflow import keras as keras
-from sklearn.metrics import classification_report, confusion_matrix
-from pandas.core.algorithms import mode
-from nltk.tokenize import word_tokenize
-from nltk.stem import PorterStemmer, WordNetLemmatizer
-from nltk.corpus import stopwords
+import io
+import sys
+import time
 from collections import Counter
+from typing import Any
+
+import matplotlib.pyplot as plt
+import nltk
+import numpy as np
+import pandas as pd
+import seaborn as sb
+import tensorflow as tf
+import tensorflow.keras.layers as layers
+from nltk.corpus import stopwords
+from nltk.corpus.reader.chasen import test
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+from nltk.tokenize import sent_tokenize, word_tokenize
+from pandas.core.algorithms import mode
+from pandas.core.frame import DataFrame
+from sklearn.metrics import classification_report, confusion_matrix
+from tensorflow import keras as keras
+from tensorflow.keras.layers import LSTM, Bidirectional, Dense, Embedding
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing import sequence
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.utils import plot_model
+from tensorflow.python.keras import callbacks
+from tensorflow.python.keras.backend import dtype
+from tensorflow.python.keras.engine.training import Model
+from tensorflow.python.ops.gen_math_ops import mod
+from tensorflow.python.util.nest import _sequence_like
 
 # NLTK Resources
 nltk.download('punkt')
@@ -59,19 +71,25 @@ emotionOther = ['love', 'surprise']
 stemmer = PorterStemmer() # Stemmer
 lem = WordNetLemmatizer()  # Lematizer
 stopWordList = set(stopwords.words('english')) # List of Stopwords
-minWordLength = 3  # Minimum word length
+minWordLength = 1  # Minimum word length
 
 # Variables relevant for model creation.
-maxWordCount = 100  # Maximum words per post
-m_epochs = 10
+sequenceLengthLong = 100
+sequenceLengthShort = 20
+m_epochs = 25
 m_batchSize = 32
 m_useMultiprocessing = True
 m_lossFunction = 'sparse_categorical_crossentropy'
 m_optimizer = Adam(learning_rate=3e-4)
 m_metrics = ['accuracy']
+m_callbacks = callbacks.EarlyStopping(
+    monitor="val_loss",
+    mode="min",
+    patience=5,
+    restore_best_weights=True)
 
 
-## PREPROCESSING AND UTILITY FUNCTIONS
+## PREPROCESSING, MODEL, AND UTILITY FUNCTIONS
 
 # Preprocessing for NLP purposes
 def nlpTreatment(entry: str, lemmatizer_over_stemmer: bool = True):
@@ -110,7 +128,7 @@ def counter_word(texts) -> int:
     return count
 
 # Plotting of confussion matrixes or heatmaps.
-def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix', annot=True, fmt='.2f', ylabel='True', xlabel='Predicted', vmin=None, vmax=None):
+def plot_confussion_matrix(data, labels, name='output', title='ConfussionMatrix', annot=True, fmt='.2f', ylabel='True', xlabel='Predicted', vmin=None, vmax=None):
     sb.set(color_codes=True)
     plt.figure(1, figsize=(6, 5))
     plt.title = (f'{name} - {title}')
@@ -123,7 +141,7 @@ def plot_confussion_matrix(data, labels, name='output', title='Confussion Matrix
 
     ax.set(ylabel=ylabel, xlabel=xlabel)
 
-    plt.savefig(f'images/{name} {title}.png', dpi=300)
+    plt.savefig(f'images/{name}_{title}.png', dpi=300)
     plt.show()
     plt.close()
 
@@ -133,19 +151,97 @@ def predictAndChoose(model:Model, data):
     data = data.argmax(axis=1)
     return data
 
-# Return the sequence and padded sequence of a set of features.
+# Returns the padded sequences of the features entered for both a Long and Short set, 
+# of size defined sequenceLengthLong and sequenceLengthShort trimmed to fit the
+# batch size.
 def sequencerPadder(data, tokenizer):
-    sequence = tokenizer.texts_to_sequences(data) # Features as Sequences
-    paddedSequence = pad_sequences(sequence, maxlen=maxWordCount, padding='post', truncating='post') #Features as Padded Sequences
-    return sequence, paddedSequence
+    longSequences = tokenizer.texts_to_sequences(data['X']) # Features as Sequences
+    lengthsList=[]
+    shortSequences = []
+    shortLabels = []
+    i=0
+    for sequence in longSequences:
+        lengthsList.append(len(sequence))
+        if len(sequence)<=sequenceLengthShort: 
+            shortSequences.append(sequence)
+            shortLabels.append(data['y'][i])
+        i += 1
+    residue = len(shortSequences)%m_batchSize
+    shortSequences = shortSequences[residue:]
+    shortLabels = np.asarray_chkfinite(shortLabels[residue:]).astype(np.int)
+    print(f"Max sequence length: {max(lengthsList)}")
+    
+    paddedSequencesLong = pad_sequences(longSequences, maxlen=sequenceLengthLong, padding='post', truncating='post') #Features as Padded Sequences
+    paddedSequencesShort = pad_sequences(shortSequences, maxlen=sequenceLengthShort, padding='post', truncating='post') #Features as Padded Sequences
+    return paddedSequencesLong, paddedSequencesShort, shortLabels
 
-def predictText(model:Model, text:str, tokenizer:Tokenizer):
+# Simple test script for real-time predictions.
+def predictText(model:Model, text:str, tokenizer:Tokenizer, maxSequenceLength:int):
     sequence = tokenizer.texts_to_sequences([text]) # Features as Sequences
-    paddedSequence = pad_sequences(sequence, maxlen=maxWordCount, padding='post', truncating='post') #Features as Padded Sequences
+    paddedSequence = pad_sequences(sequence, maxlen=maxSequenceLength, padding='post', truncating='post') #Features as Padded Sequences
     pred = model.predict(paddedSequence)
     pred = pred.argmax(axis=1)
     return f"Model: {model.name}\nText: {text}\nPrediction: {e_index[pred][0]}"
     
+# Compile, Fit (train) and Save a Keras Model using the model variables defined earlier in the script.
+def ModelCompileFitAndSave(model:Model, dataset:dict[str,dict[str,Any]], maxWordLength):
+    #Model Compile
+    model.compile(
+        loss = m_lossFunction,
+        optimizer = m_optimizer,
+        metrics = m_metrics
+    )
+
+    if(maxWordLength==sequenceLengthLong):
+        features='Xp'
+        labels='y'
+    elif(maxWordLength==sequenceLengthShort):
+        features='Xps'
+        labels='ys'
+
+    #Train the model
+    tick=time.time()
+    model.fit(
+        dataset['tr'][features], dataset['tr'][labels],
+        batch_size = m_batchSize,
+        epochs = m_epochs,
+        use_multiprocessing = m_useMultiprocessing,
+        callbacks = m_callbacks,
+        validation_data=(dataset['va'][features], dataset['va'][labels])
+    )
+    tock=time.time()
+    trainTime=tock-tick
+
+    #Save the model
+    print('Saving model...\n')
+    timefile = open(f"reports/{model.name}_time.txt", "w")
+    timefile.write(str(trainTime))
+    timefile.close()
+    print(f"Train time for {model.name} model: {trainTime}")
+    model.save(f'models/{model.name}')
+
+def ModelPlotAndSummary(model:Model):
+    print(model.summary())
+    plot_model(model, to_file=f'images/{model.name}_ModelPlot.png', show_shapes=True, show_layer_names=False)
+
+def ModelReportAndCMatrix(model : Model, dataset:dict[str, dict[str, Any]],maxWordLength):
+    if(maxWordLength==sequenceLengthLong):
+        features='Xp'
+        labels='y'
+    elif(maxWordLength==sequenceLengthShort):
+        features='Xps'
+        labels='ys'
+    # Accuracy, Presicion, Recall, and F1-Score
+    testPrediction = predictAndChoose(model, dataset['te'][features])
+    report=classification_report(ednlp['te'][labels], testPrediction, target_names=e_index, output_dict=True)
+    report=pd.DataFrame(report).transpose()
+    report.to_csv(f'reports/{model.name}_report.csv', float_format='%.3f')
+    print(report)
+
+    # Confussion Matrix
+    blstm_cm=confusion_matrix(ednlp['te'][labels], testPrediction, normalize='pred')
+    plot_confussion_matrix(blstm_cm, e_index, name=model.name, fmt='.2f', vmin=0, vmax=1)
+
 
 print("Utility and Preprocessing Functions loaded.")
 
@@ -176,13 +272,14 @@ try:
         'te': {'X': ec_test_X, 'y': ec_test_y}, # Testing Sets
         'va': {'X': ec_val_X, 'y': ec_val_y} #Validation Sets
     }
+
     print()
     for key in ednlp:
         print('Shape of',key,'\b features:',ednlp[key]['X'].shape)
 except:
     print('EDNLP Dataset(s) not found. Make sure test, val and train CSVs are available at at /dataset/EDNLP')
 
-# %% WORD INDEXING
+# %% WORD INDEXING AND SHORT SUBSET CREATION
 
 wordCounter = counter_word(ednlp['tr']['X'])
 numWords = len(wordCounter)
@@ -191,10 +288,22 @@ tokenizer = Tokenizer(num_words=numWords)
 tokenizer.fit_on_texts(ednlp['tr']['X'])
 word_index = tokenizer.word_index
 
+# Xp: X as a padded sequence of length equivalent to the value of SequenceLengthLong
+# Xps: X as a padded sequence of length equivalent to the value of SequenceLengthShort
+# Ys: Y for the small padded sequences. 
 for key in ednlp:
-    ednlp[key]['Xs'], ednlp[key]['Xp'] = sequencerPadder(ednlp[key]['X'], tokenizer)
+    ednlp[key]['Xp'], ednlp[key]['Xps'], ednlp[key]['ys'] = sequencerPadder(ednlp[key], tokenizer)
 
-print('Sequences and Padded Sequences generated.')
+print(f"Long Set Size: {len(ednlp['tr']['Xp'])}, Sequence Length: {len(ednlp['tr']['Xp'][0])}")
+print(f"Short Set Size: {len(ednlp['tr']['Xps'])}, Sequence Length: {len(ednlp['tr']['Xps'][0])}")
+print(f"Short Set Labels Size: {len(ednlp['tr']['ys'])}")
+
+
+for col in ednlp['tr']:
+    print(col, type(ednlp['tr'][col]))
+
+
+print('Long and Short Padded Sequences generated.')
 
 # %% [markdown] 
 # # BLSTM Classification Model
@@ -203,163 +312,121 @@ print('Sequences and Padded Sequences generated.')
 
 # %% EDNLP_BLSTM MODEL
 
-# Attempt to load already-existing model.
-# Otherwise, build and train the model.
-try:
-    BLSTM_model : Model = keras.models.load_model('models/EDNLP_BLSTM')
-    print('EDNLP_BLSTM Model loaded.\n')
+# Attempt to load already-existing models.
+# Otherwise, build and train the models.
 
-    blstm_timefile = open("reports/blstm_time.txt", "r")
-    blstm_train_time = str(blstm_timefile.read())
-    blstm_timefile.close()
+def BLSTM_LoadOrCreate(maxSequenceLength) -> Model:
+    modelName=f"BLSTM_{maxSequenceLength}"
+    try:
+        blstmModel : Model = keras.models.load_model(f'models/{modelName}')
+        print(f'{modelName} Model loaded.\n')
+    except:
+        print(f'{modelName} Model not found at models directory. Building model.')
+        # Model Structure
+        blstmModel : Model = Sequential(name=modelName)
 
-except:
-    print('EDNLP_BLSTM Model not found at models/EDNLP_BLSTM. Building model.')
-    # Model Structure
-    BLSTM_model : Model = Sequential(name='EDNLP_BLSTM')
+        scaleFactor = 8
+        embedOutput = 32
 
-    scaleFactor = 8
-    embedOutput = 32
+        # Number of LSTM units necessary.
+        lstmUnits = int(round(
+            len(ednlp['tr']['Xp'])
+            /
+            (scaleFactor * (len(e_index) + embedOutput))
+        ))
 
-    # Number of LSTM units necessary.
-    lstmUnits = int(round(
-        len(ednlp['tr']['Xp'])
-        /
-        (scaleFactor * (len(e_index) + embedOutput))
-    ))
+        blstmModel.add(Embedding(numWords, embedOutput, input_length=maxSequenceLength, name='embedding'))
+        blstmModel.add(Bidirectional(LSTM(lstmUnits, dropout=0.1), name='blstm'))
+        blstmModel.add(Dense(len(e_index), activation='sigmoid', name='dense'))
 
-    print('Target Outputs for unidirectional LSTM Layer:',lstmUnits)
+        blstmModel.get_layer('embedding')
 
-    BLSTM_model.add(Embedding(numWords, embedOutput, input_length=maxWordCount, name='embedding'))
-    BLSTM_model.add(Bidirectional(LSTM(lstmUnits, dropout=0.1), name='blstm'))
-    BLSTM_model.add(Dense(len(e_index), activation='sigmoid', name='dense'))
+        ModelCompileFitAndSave(blstmModel,ednlp,maxSequenceLength)
 
-    BLSTM_model.get_layer('embedding')
+    return blstmModel
 
-    BLSTM_model.compile(
-        loss = m_lossFunction,
-        optimizer = m_optimizer,
-        metrics = m_metrics)
-
-
-    tick = time.time()
-    #Model Training
-    history =  BLSTM_model.fit(
-        ednlp['tr']['Xp'], ednlp['tr']['y'],
-        batch_size = m_batchSize,
-        epochs = m_epochs,
-        use_multiprocessing = m_useMultiprocessing,
-        validation_data=(ednlp['va']['Xp'], ednlp['va']['y'])
-    )
-    tock = time.time()
-
-    blstm_train_time = tock-tick
-
-    
-    # Save model
-    print('Saving model...\n')
-    print(blstm_train_time)
-    BLSTM_model.save('models/EDNLP_BLSTM')
-    blstm_timefile = open("reports/blstm_time.txt", "w")
-    blstm_timefile.write(str(blstm_train_time))
-    blstm_timefile.close()
-
+BLSTM_100_MODEL = BLSTM_LoadOrCreate(sequenceLengthLong)
+BLSTM_20_MODEL = BLSTM_LoadOrCreate(sequenceLengthShort)
 
 # Print and plot the model.
-print(BLSTM_model.summary())
-plot_model(BLSTM_model, to_file='images/BLSTM_model.png', show_shapes=True, show_layer_names=False)
+ModelPlotAndSummary(BLSTM_100_MODEL)
+ModelPlotAndSummary(BLSTM_20_MODEL)
+
 
 # %% Transformer Classification Model
 
 # Attempt to load already-existing model.
 # Otherwise, build and train the model.
-try:
-    TRNS_model : Model = keras.models.load_model('models/EDNLP_TRNS')
-    print('EDNLP_TRNS Model loaded.\n')
-except:
-    print('EDNLP_TRNS Model not found at models/EDNLP_TRNS. Building model.')
-    
-    # Transformer block layer class
-    class TransformerBlock(layers.Layer):
-        def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1):
-            super(TransformerBlock, self).__init__()
-            self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
-            self.ffn = keras.Sequential(
-                [layers.Dense(ff_dim, activation="relu"), layers.Dense(embed_dim),]
-            )
-            self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
-            self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-            self.dropout1 = layers.Dropout(rate)
-            self.dropout2 = layers.Dropout(rate)
 
-        def call(self, inputs, training):
-            attn_output = self.att(inputs, inputs)
-            attn_output = self.dropout1(attn_output, training=training)
-            out1 = self.layernorm1(inputs + attn_output)
-            ffn_output = self.ffn(out1)
-            ffn_output = self.dropout2(ffn_output, training=training)
-            return self.layernorm2(out1 + ffn_output)
+def TRNS_LoadOrCreate(maxSequenceLength) -> Model:
+    trns_modelName = f"TRNS_{maxSequenceLength}"
+    try:
+        trnsModel : Model = keras.models.load_model(f'models/{trns_modelName}')
+        print(f'{trns_modelName} Model loaded.\n')
+    except:
+        print(f'{trns_modelName} Model not found at models directory. Building model.')
+        
+        # Transformer block layer class
+        class TransformerBlock(layers.Layer):
+            def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1):
+                super(TransformerBlock, self).__init__()
+                self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+                self.ffn = keras.Sequential(
+                    [layers.Dense(ff_dim, activation="relu"), layers.Dense(embed_dim),]
+                )
+                self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
+                self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
+                self.dropout1 = layers.Dropout(rate)
+                self.dropout2 = layers.Dropout(rate)
 
-    class TokenAndPositionEmbedding(layers.Layer):
-        def __init__(self, maxlen, vocab_size, embed_dim):
-            super(TokenAndPositionEmbedding, self).__init__()
-            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
-            self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
+            def call(self, inputs, training):
+                attn_output = self.att(inputs, inputs)
+                attn_output = self.dropout1(attn_output, training=training)
+                out1 = self.layernorm1(inputs + attn_output)
+                ffn_output = self.ffn(out1)
+                ffn_output = self.dropout2(ffn_output, training=training)
+                return self.layernorm2(out1 + ffn_output)
 
-        def call(self, x):
-            maxlen = tf.shape(x)[-1]
-            positions = tf.range(start=0, limit=maxlen, delta=1)
-            positions = self.pos_emb(positions)
-            x = self.token_emb(x)
-            return x + positions
+        class TokenAndPositionEmbedding(layers.Layer):
+            def __init__(self, maxlen, vocab_size, embed_dim):
+                super(TokenAndPositionEmbedding, self).__init__()
+                self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
+                self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
 
-    embed_dim = 32  # Embedding size for each token
-    num_heads = 2  # Number of attention heads
-    ff_dim = 32  # Hidden layer size in feed forward network inside transformer
+            def call(self, x):
+                maxlen = tf.shape(x)[-1]
+                positions = tf.range(start=0, limit=maxlen, delta=1)
+                positions = self.pos_emb(positions)
+                x = self.token_emb(x)
+                return x + positions
 
-    inputs = layers.Input(shape=(maxWordCount,))
-    embedding_layer = TokenAndPositionEmbedding(maxWordCount, numWords, embed_dim)
-    x = embedding_layer(inputs)
-    transformer_block = TransformerBlock(embed_dim, num_heads, ff_dim)
-    x = transformer_block(x)
-    x = layers.GlobalAveragePooling1D()(x)
-    x = layers.Dropout(0.1)(x)
-    x = layers.Dense(20, activation="relu")(x)
-    x = layers.Dropout(0.1)(x)
-    outputs = layers.Dense(len(e_index), activation="softmax")(x)
+        embed_dim = 32  # Embedding size for each token
+        num_heads = 2  # Number of attention heads
+        ff_dim = 32  # Hidden layer size in feed forward network inside transformer
 
-    TRNS_model : Model = keras.Model(inputs=inputs, outputs=outputs, name="ENDLP_TRNS")
+        inputs = layers.Input(shape=(maxSequenceLength,))
+        embedding_layer = TokenAndPositionEmbedding(maxSequenceLength, numWords, embed_dim)
+        x = embedding_layer(inputs)
+        transformer_block = TransformerBlock(embed_dim, num_heads, ff_dim)
+        x = transformer_block(x)
+        x = layers.GlobalAveragePooling1D()(x)
+        x = layers.Dropout(0.1)(x)
+        x = layers.Dense(20, activation="relu")(x)
+        x = layers.Dropout(0.1)(x)
+        outputs = layers.Dense(len(e_index), activation="softmax")(x)
 
-    TRNS_model.compile(
-        loss = m_lossFunction,
-        optimizer = m_optimizer,
-        metrics = m_metrics
-    )
+        trnsModel : Model = keras.Model(inputs=inputs, outputs=outputs, name=trns_modelName)
+        
+        ModelCompileFitAndSave(trnsModel,ednlp,maxSequenceLength)
 
-    tick=time.time()
-    # Model Training
-    history = TRNS_model.fit(
-        ednlp['tr']['Xp'], ednlp['tr']['y'],
-        batch_size = m_batchSize,
-        epochs = m_epochs,
-        use_multiprocessing = m_useMultiprocessing,
-        validation_data=(ednlp['va']['Xp'], ednlp['va']['y'])
-    )
-    tock=time.time()
+    return trnsModel
 
-    trns_train_time = tock-tick
+TRNS_100_Model = TRNS_LoadOrCreate(sequenceLengthLong)
+TRNS_20_Model = TRNS_LoadOrCreate(sequenceLengthShort)
 
-    # Save model
-    print('Saving model...\n')
-    trns_timefile = open("reports/trns_time.txt", "w")
-    trns_timefile.write(str(trns_train_time))
-    trns_timefile.close()
-    print(trns_train_time)
-    TRNS_model.save('models/EDNLP_TRNS')
-
-# Print and plot the model.
-print(TRNS_model.summary())
-plot_model(TRNS_model, to_file='images/TRNS_model.png', show_shapes=True, show_layer_names=False)
+# Print and Plot the model
+ModelPlotAndSummary(TRNS_100_Model)
+ModelPlotAndSummary(TRNS_20_Model)
 
 # %% [markdown]
 # # Testing the Models 
@@ -367,31 +434,13 @@ plot_model(TRNS_model, to_file='images/TRNS_model.png', show_shapes=True, show_l
 
 # %% TESTING BLSTM EDNLP
 
-BLSTM_testPrediction = predictAndChoose(BLSTM_model, ednlp['te']['Xp'])
-
-# Accuracy, Presicion, Recall, and F1-Score
-blstm_report=classification_report(ednlp['te']['y'], BLSTM_testPrediction, target_names=e_index, output_dict=True)
-blstm_report=pd.DataFrame(blstm_report).transpose()
-blstm_report.to_csv('reports/blstm.csv', float_format='%.2f')
-print(blstm_report)
-
-# Confussion Matrix
-blstm_cm=confusion_matrix(ednlp['te']['y'], BLSTM_testPrediction, normalize='pred')
-plot_confussion_matrix(blstm_cm, e_index, name='EDNLP_BLSTM', fmt='.2f', vmin=0, vmax=1)
+ModelReportAndCMatrix(BLSTM_100_MODEL,ednlp,sequenceLengthLong)
+ModelReportAndCMatrix(BLSTM_20_MODEL,ednlp,sequenceLengthShort)
 
 # %% TESTING TRNS EDNLP
 
-TRNS_testPrediction = predictAndChoose(TRNS_model, ednlp['te']['Xp'])
-
-# Accuracy, Presicion, Recall, and F1-Score
-trns_report=classification_report(ednlp['te']['y'], TRNS_testPrediction, target_names=e_index, output_dict=True)
-trns_report=pd.DataFrame(trns_report).transpose()
-trns_report.to_csv('reports/trns.csv', float_format='%.2f')
-print(trns_report)
-
-# Confussion Matrix
-trns_cm=confusion_matrix(ednlp['te']['y'], TRNS_testPrediction, normalize='pred')
-plot_confussion_matrix(trns_cm, e_index, name='EDNLP_TRNS', fmt='.2f', vmin=0, vmax=1)
+ModelReportAndCMatrix(TRNS_100_Model,ednlp,sequenceLengthLong)
+ModelReportAndCMatrix(TRNS_20_Model,ednlp,sequenceLengthShort)
 
 # %% [markdown]
 # # Live Tests
@@ -399,11 +448,11 @@ plot_confussion_matrix(trns_cm, e_index, name='EDNLP_TRNS', fmt='.2f', vmin=0, v
 
 # %% Live test: BLSTM
 testText = input("Please input a string to predict:")
-print(predictText(BLSTM_model, testText, tokenizer))
+print(predictText(BLSTM_100_MODEL, testText, tokenizer, sequenceLengthLong))
 
 # %% Live test: TRANSFORMER
 testText = input("Please input a string to predict:")
-print(predictText(TRNS_model, testText, tokenizer))
+print(predictText(TRNS_100_Model, testText, tokenizer, sequenceLengthLong))
 
 # %% [markdown] 
 # That was fun wasn't it?
